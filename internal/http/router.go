@@ -14,6 +14,7 @@ func NewRouter(
 	apiKey string,
 	healthHandler *HealthHandler,
 	accountHandler *AccountHandler,
+	paymentHandler *PaymentHandler,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -30,6 +31,11 @@ func NewRouter(
 	r.Route("/accounts", func(r chi.Router) {
 		r.Get("/{id}", accountHandler.GetAccount)
 		r.Post("/", accountHandler.CreateAccount)
+	})
+
+	r.Route("/payments", func(r chi.Router) {
+		r.Get("/{id}", paymentHandler.GetPayment)
+		r.Post("/", paymentHandler.CreatePayment)
 	})
 
 	return r
