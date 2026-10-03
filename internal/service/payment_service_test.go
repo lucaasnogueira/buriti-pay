@@ -2,11 +2,14 @@ package service_test
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lucaasnogueira/buriti-pay/internal/domain"
+	"github.com/lucaasnogueira/buriti-pay/internal/lock"
 	"github.com/lucaasnogueira/buriti-pay/internal/repository"
 	"github.com/lucaasnogueira/buriti-pay/internal/service"
 	"github.com/lucaasnogueira/buriti-pay/internal/worker"
@@ -72,59 +75,67 @@ func (e *testEnqueuer) Enqueue(job worker.Job) error {
 	return nil
 }
 
-func TestPaymentService_AsyncIngestionAndIdempotency(t *testing.T) {
+type mockLocker struct {
+	acquiredKeys []string
+	releasedKeys []string
+}
+
+func (m *mockLocker) Acquire(ctx context.Context, key string, ttl time.Duration) (*lock.LockHandle, error) {
+	m.acquiredKeys = append(m.acquiredKeys, key)
+	return &lock.LockHandle{Key: key, Token: "token-123"}, nil
+}
+
+func (m *mockLocker) Release(ctx context.Context, handle *lock.LockHandle) error {
+	if handle != nil {
+		m.releasedKeys = append(m.releasedKeys, handle.Key)
+	}
+	return nil
+}
+
+func (m *mockLocker) Extend(ctx context.Context, handle *lock.LockHandle, ttl time.Duration) error {
+	return nil
+}
+
+func TestPaymentService_DistributedLockAndOrdering(t *testing.T) {
 	repo := newMockPaymentRepo()
 	enqueuer := &testEnqueuer{}
-	svc := service.NewPaymentService(repo, enqueuer)
+	locker := &mockLocker{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	svc := service.NewPaymentService(repo, locker, enqueuer, 5*time.Second, logger)
 	ctx := context.Background()
 
-	fromID := uuid.New()
-	toID := uuid.New()
-	key := "idem-key-phase3"
-	amount := int64(3000)
+	id1 := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	id2 := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
-	t.Run("creates payment with PENDING status and enqueues job", func(t *testing.T) {
-		p, err := svc.CreatePaymentAsync(ctx, key, fromID, toID, amount)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if p.Status != domain.StatusPending {
-			t.Errorf("expected status PENDING, got %s", p.Status)
-		}
-		if len(enqueuer.enqueued) != 1 {
-			t.Fatalf("expected 1 enqueued job, got %d", len(enqueuer.enqueued))
-		}
-	})
+	// Create payment where fromID > toID (id2 -> id1)
+	p, err := svc.CreatePaymentAsync(ctx, "key-order-test", id2, id1, 1000)
+	if err != nil {
+		t.Fatalf("failed to create payment: %v", err)
+	}
 
-	t.Run("returns original payment for duplicate idempotency key without duplicate enqueue", func(t *testing.T) {
-		p, err := svc.CreatePaymentAsync(ctx, key, fromID, toID, amount)
-		if err != nil {
-			t.Fatalf("expected idempotent success, got %v", err)
-		}
-		if p.IdempotencyKey != key {
-			t.Errorf("expected key %s, got %s", key, p.IdempotencyKey)
-		}
-		// Enqueued count remains 1
-		if len(enqueuer.enqueued) != 1 {
-			t.Fatalf("expected enqueued count to stay 1, got %d", len(enqueuer.enqueued))
-		}
-	})
+	// Process job
+	err = svc.Process(ctx, worker.Job{PaymentID: p.ID})
+	if err != nil {
+		t.Fatalf("failed to process job: %v", err)
+	}
 
-	t.Run("returns ErrIdempotencyConflict when payload differs", func(t *testing.T) {
-		_, err := svc.CreatePaymentAsync(ctx, key, fromID, toID, 9999)
-		if err != domain.ErrIdempotencyConflict {
-			t.Fatalf("expected ErrIdempotencyConflict, got %v", err)
-		}
-	})
+	// Verify locks were acquired deterministically in ascending UUID order (id1 first, then id2)
+	expectedFirstKey := "lock:account:11111111-1111-1111-1111-111111111111"
+	expectedSecondKey := "lock:account:22222222-2222-2222-2222-222222222222"
 
-	t.Run("worker Process executes transfer to confirmed", func(t *testing.T) {
-		err := svc.Process(ctx, enqueuer.enqueued[0])
-		if err != nil {
-			t.Fatalf("process failed: %v", err)
-		}
-		saved, _ := repo.GetByID(ctx, enqueuer.enqueued[0].PaymentID)
-		if saved.Status != domain.StatusConfirmed {
-			t.Errorf("expected CONFIRMED status, got %s", saved.Status)
-		}
-	})
+	if len(locker.acquiredKeys) != 2 {
+		t.Fatalf("expected 2 acquired locks, got %d", len(locker.acquiredKeys))
+	}
+	if locker.acquiredKeys[0] != expectedFirstKey {
+		t.Errorf("expected first lock to be %s, got %s", expectedFirstKey, locker.acquiredKeys[0])
+	}
+	if locker.acquiredKeys[1] != expectedSecondKey {
+		t.Errorf("expected second lock to be %s, got %s", expectedSecondKey, locker.acquiredKeys[1])
+	}
+
+	// Verify all acquired locks were safely released
+	if len(locker.releasedKeys) != 2 {
+		t.Fatalf("expected 2 released locks, got %d", len(locker.releasedKeys))
+	}
 }

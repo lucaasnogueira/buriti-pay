@@ -16,6 +16,7 @@ import (
 
 	"github.com/lucaasnogueira/buriti-pay/internal/config"
 	apphttp "github.com/lucaasnogueira/buriti-pay/internal/http"
+	"github.com/lucaasnogueira/buriti-pay/internal/lock"
 	"github.com/lucaasnogueira/buriti-pay/internal/repository"
 	"github.com/lucaasnogueira/buriti-pay/internal/service"
 	"github.com/lucaasnogueira/buriti-pay/internal/worker"
@@ -48,9 +49,19 @@ func main() {
 	accountRepo := repository.NewPostgresAccountRepository(dbPool)
 	paymentRepo := repository.NewPostgresPaymentRepository(dbPool)
 
-	// 2. Worker Pool & Service Wiring
-	// Create service first without enqueuer to act as worker handler
-	paymentService := service.NewPaymentService(paymentRepo, nil)
+	// 2. Redis Client & Distributed Locker
+	redisOpt, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		logger.Error("Failed to parse Redis URL", "error", err)
+		os.Exit(1)
+	}
+	redisClient := redis.NewClient(redisOpt)
+	defer redisClient.Close()
+
+	redisLocker := lock.NewRedisLocker(redisClient, logger)
+
+	// 3. Worker Pool & Service Wiring
+	paymentService := service.NewPaymentService(paymentRepo, redisLocker, nil, cfg.LockTTL, logger)
 
 	pool := worker.NewPool(
 		logger,
@@ -62,9 +73,9 @@ func main() {
 	pool.Start(ctx)
 
 	// Re-wire payment service with the worker pool as enqueuer
-	paymentService = service.NewPaymentService(paymentRepo, pool)
+	paymentService = service.NewPaymentService(paymentRepo, redisLocker, pool, cfg.LockTTL, logger)
 
-	// 3. Reaper Process for recovery of orphaned payments
+	// 4. Reaper Process for recovery of orphaned payments
 	reaper := worker.NewReaper(
 		logger,
 		paymentRepo,
@@ -73,15 +84,6 @@ func main() {
 		cfg.ReaperStaleAfter,
 	)
 	reaper.Start(ctx)
-
-	// 4. Redis Client
-	redisOpt, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
-		logger.Error("Failed to parse Redis URL", "error", err)
-		os.Exit(1)
-	}
-	redisClient := redis.NewClient(redisOpt)
-	defer redisClient.Close()
 
 	// 5. RabbitMQ Connection Provider
 	rabbitConnFn := func() (*amqp091.Connection, error) {
