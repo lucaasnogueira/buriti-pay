@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func NewRouter(
@@ -26,6 +27,9 @@ func NewRouter(
 	// Liveness and Readiness probes
 	r.Get("/healthz", healthHandler.Healthz)
 	r.Get("/readyz", healthHandler.Readyz)
+
+	// Prometheus Metrics endpoint
+	r.Handle("/metrics", promhttp.Handler())
 
 	// API Routes
 	r.Route("/accounts", func(r chi.Router) {
