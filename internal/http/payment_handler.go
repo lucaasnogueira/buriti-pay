@@ -50,7 +50,7 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payment, err := h.service.ProcessPayment(
+	payment, err := h.service.CreatePaymentAsync(
 		r.Context(),
 		idempotencyKey,
 		req.FromAccountID,
@@ -66,6 +66,11 @@ func (h *PaymentHandler) CreatePayment(w http.ResponseWriter, r *http.Request) {
 			errors.Is(err, domain.ErrIdempotencyKeyRequired):
 			respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		default:
+			if err.Error() == "worker queue is full (backpressure)" {
+				w.Header().Set("Retry-After", "2")
+				respondJSON(w, http.StatusTooManyRequests, map[string]string{"error": "server queue full, retry after 2s"})
+				return
+			}
 			respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal payment error"})
 		}
 		return

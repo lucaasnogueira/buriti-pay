@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,6 +23,7 @@ type PaymentRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.Payment, error)
 	GetByIdempotencyKey(ctx context.Context, key string) (*domain.Payment, error)
 	ExecuteTransfer(ctx context.Context, paymentID uuid.UUID) (*domain.Payment, error)
+	FindStalePayments(ctx context.Context, staleAfter time.Duration, limit int) ([]uuid.UUID, error)
 }
 
 type PostgresPaymentRepository struct {
@@ -303,4 +305,31 @@ func (r *PostgresPaymentRepository) recordPaymentFailure(
 	`
 	_, err := tx.Exec(ctx, outboxQuery, p.ID, failedPayload)
 	return err
+}
+
+func (r *PostgresPaymentRepository) FindStalePayments(ctx context.Context, staleAfter time.Duration, limit int) ([]uuid.UUID, error) {
+	threshold := time.Now().UTC().Add(-staleAfter)
+	query := `
+		SELECT id
+		FROM payments
+		WHERE status IN ('PENDING', 'PROCESSING')
+		  AND updated_at <= $1
+		ORDER BY updated_at ASC
+		LIMIT $2
+	`
+	rows, err := r.pool.Query(ctx, query, threshold, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query stale payments: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan stale payment id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
