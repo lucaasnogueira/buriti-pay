@@ -1,31 +1,42 @@
-# Binaries
+# Binaries and build outputs
 bin/
+dist/
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test artifacts
+# Test artifacts and coverage
 *.test
 *.out
 coverage.html
 profile.pprof
+*.prof
 
-# Environment variables
+# Environment and sensitive credentials
 .env
-.env.local
+.env.*
+!.env.example
 
-# IDEs
+# IDEs and editors
 .idea/
 .vscode/
 *.swp
+*.swo
 *~
+.project
+.settings/
 
-# OS specific
+# Operating System artifacts
 Thumbs.db
 Desktop.ini
 .DS_Store
+ehthumbs.db
 
-# Temporary / Log files
+# Logs and debug traces
 *.log
+*.trace
+
+# Dependencies & vendor (if vendored)
+vendor/
