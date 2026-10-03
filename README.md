@@ -3,16 +3,16 @@
 **High-concurrency payment processing in Go.**
 Accepts thousands of simultaneous transactions, processes them in parallel, and never spends the same money twice.
 
-![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)
+![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)
+![CI](https://github.com/lucaasnogueira/buriti-pay/actions/workflows/ci.yml/badge.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3-FF6600?logo=rabbitmq&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **Status:** 🚧 In design. The architecture and roadmap are documented; implementation follows the phases in [`docs/roadmap.md`](docs/roadmap.md).
-> 📄 **Full documentation:** [`docs/Buriti-Pay-Documentation.docx`](docs/Buriti-Pay-Documentation.docx) (architecture, API, ADRs, roadmap, portfolio plan)
-> Live demo: _coming soon_ · Landing page: _coming soon_
+> **Status:** ✅ Core implementation complete (Phases 0 through 7). Fully tested with distributed locking, idempotency, bounded worker pool, transactional outbox, and Prometheus telemetry.
+> 📄 **Architecture & ADRs:** [`docs/architecture.md`](docs/architecture.md) · [`docs/roadmap.md`](docs/roadmap.md) · [`docs/benchmarks.md`](docs/benchmarks.md) · [`docs/adrs/`](docs/adrs/)
 
 ---
 
