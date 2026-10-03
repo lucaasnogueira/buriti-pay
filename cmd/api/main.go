@@ -17,6 +17,7 @@ import (
 	"github.com/lucaasnogueira/buriti-pay/internal/config"
 	apphttp "github.com/lucaasnogueira/buriti-pay/internal/http"
 	"github.com/lucaasnogueira/buriti-pay/internal/lock"
+	"github.com/lucaasnogueira/buriti-pay/internal/messaging"
 	"github.com/lucaasnogueira/buriti-pay/internal/repository"
 	"github.com/lucaasnogueira/buriti-pay/internal/service"
 	"github.com/lucaasnogueira/buriti-pay/internal/worker"
@@ -85,8 +86,34 @@ func main() {
 	)
 	reaper.Start(ctx)
 
-	// 5. RabbitMQ Connection Provider
+	// 5. RabbitMQ Connection & Outbox Relay
+	var rabbitConn *amqp091.Connection
+	for attempt := 1; attempt <= 10; attempt++ {
+		rabbitConn, err = amqp091.Dial(cfg.RabbitMQURL)
+		if err == nil {
+			break
+		}
+		logger.Warn("Connecting to RabbitMQ...", "attempt", attempt, "error", err)
+		time.Sleep(2 * time.Second)
+	}
+
+	var outboxRelay *messaging.OutboxRelay
+	if rabbitConn != nil {
+		defer rabbitConn.Close()
+		publisher, pubErr := messaging.NewRabbitPublisher(rabbitConn, logger)
+		if pubErr != nil {
+			logger.Warn("Failed to initialize RabbitMQ publisher for Outbox Relay", "error", pubErr)
+		} else {
+			defer publisher.Close()
+			outboxRelay = messaging.NewOutboxRelay(logger, paymentRepo, publisher, 500*time.Millisecond, 50)
+			outboxRelay.Start(ctx)
+		}
+	}
+
 	rabbitConnFn := func() (*amqp091.Connection, error) {
+		if rabbitConn != nil && !rabbitConn.IsClosed() {
+			return rabbitConn, nil
+		}
 		return amqp091.Dial(cfg.RabbitMQURL)
 	}
 
@@ -120,6 +147,11 @@ func main() {
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			shutdownErrChan <- fmt.Errorf("http shutdown failed: %w", err)
 			return
+		}
+
+		// Stop Outbox Relay
+		if outboxRelay != nil {
+			outboxRelay.Stop()
 		}
 
 		// Stop Reaper

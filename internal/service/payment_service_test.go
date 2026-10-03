@@ -66,6 +66,14 @@ func (m *mockPaymentRepo) FindStalePayments(ctx context.Context, staleAfter time
 	return nil, nil
 }
 
+func (m *mockPaymentRepo) GetPendingOutboxEvents(ctx context.Context, limit int) ([]*domain.OutboxEvent, error) {
+	return nil, nil
+}
+
+func (m *mockPaymentRepo) MarkOutboxEventPublished(ctx context.Context, id int64) error {
+	return nil
+}
+
 type testEnqueuer struct {
 	enqueued []worker.Job
 }

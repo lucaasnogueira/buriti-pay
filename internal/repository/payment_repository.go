@@ -24,6 +24,8 @@ type PaymentRepository interface {
 	GetByIdempotencyKey(ctx context.Context, key string) (*domain.Payment, error)
 	ExecuteTransfer(ctx context.Context, paymentID uuid.UUID) (*domain.Payment, error)
 	FindStalePayments(ctx context.Context, staleAfter time.Duration, limit int) ([]uuid.UUID, error)
+	GetPendingOutboxEvents(ctx context.Context, limit int) ([]*domain.OutboxEvent, error)
+	MarkOutboxEventPublished(ctx context.Context, id int64) error
 }
 
 type PostgresPaymentRepository struct {
@@ -332,4 +334,42 @@ func (r *PostgresPaymentRepository) FindStalePayments(ctx context.Context, stale
 		ids = append(ids, id)
 	}
 	return ids, nil
+}
+
+func (r *PostgresPaymentRepository) GetPendingOutboxEvents(ctx context.Context, limit int) ([]*domain.OutboxEvent, error) {
+	query := `
+		SELECT id, aggregate_id, event_type, payload, created_at
+		FROM outbox
+		WHERE published_at IS NULL
+		ORDER BY id ASC
+		LIMIT $1
+	`
+	rows, err := r.pool.Query(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query pending outbox events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []*domain.OutboxEvent
+	for rows.Next() {
+		var e domain.OutboxEvent
+		if err := rows.Scan(&e.ID, &e.AggregateID, &e.EventType, &e.Payload, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan outbox event: %w", err)
+		}
+		events = append(events, &e)
+	}
+	return events, nil
+}
+
+func (r *PostgresPaymentRepository) MarkOutboxEventPublished(ctx context.Context, id int64) error {
+	query := `
+		UPDATE outbox
+		SET published_at = now()
+		WHERE id = $1
+	`
+	_, err := r.pool.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to mark outbox event %d published: %w", id, err)
+	}
+	return nil
 }
