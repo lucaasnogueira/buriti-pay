@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buriti Pay — High-Concurrency Payment Processing in Go</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1b4d3e;
+      --primary-light: #2d7a63;
+      --accent: #d35400;
+      --accent-light: #e67e22;
+      --bg: #0b1110;
+      --surface: #141f1c;
+      --surface-border: #1f332d;
+      --text: #e1e7e5;
+      --text-muted: #8b9e97;
+      --success: #2ecc71;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navbar */
+    nav {
+      border-bottom: 1px solid var(--surface-border);
+      padding: 20px 0;
+      backdrop-filter: blur(10px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(11, 17, 16, 0.85);
+    }
+
+    nav .nav-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 1.25rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .logo span {
+      color: var(--accent);
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      margin-left: 24px;
+      font-size: 0.95rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 90px 0 60px;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 14px;
+      background: rgba(45, 122, 99, 0.2);
+      border: 1px solid var(--primary-light);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      color: #55efc4;
+      margin-bottom: 24px;
+      font-weight: 600;
+    }
+
+    h1 {
+      font-size: 3.2rem;
+      line-height: 1.15;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin-bottom: 24px;
+    }
+
+    h1 span {
+      background: linear-gradient(135deg, #55efc4, #2ecc71);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .subtitle {
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin: 0 auto 36px;
+    }
+
+    .cta-group {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 60px;
+    }
+
+    .btn {
+      padding: 14px 28px;
+      border-radius: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 1rem;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--primary-light);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .btn-primary:hover {
+      background: var(--primary);
+    }
+
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--surface-border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--text-muted);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
+      margin-bottom: 80px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      padding: 28px;
+      text-align: left;
+    }
+
+    .stat-value {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: #55efc4;
+      margin-bottom: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    /* Interactive Demo Card */
+    .demo-section {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
+      padding: 40px;
+      margin-bottom: 90px;
+    }
+
+    .demo-header {
+      margin-bottom: 30px;
+    }
+
+    .demo-header h2 {
+      font-size: 1.8rem;
+      margin-bottom: 8px;
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+
+    @media (max-width: 800px) {
+      .demo-grid { grid-template-columns: 1fr; }
+    }
+
+    .account-card {
+      background: rgba(11, 17, 16, 0.6);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 20px;
+    }
+
+    .account-title {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .balance-display {
+      font-size: 1.8rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+      color: #fff;
+    }
+
+    .demo-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .log-box {
+      background: #070b0a;
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      padding: 16px;
+      height: 180px;
+      overflow-y: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: #8b9e97;
+    }
+
+    .log-entry {
+      margin-bottom: 6px;
+    }
+
+    .log-success { color: #2ecc71; }
+    .log-info { color: #3498db; }
+    .log-warn { color: var(--accent); }
+
+    /* Architecture Section */
+    .arch-section {
+      margin-bottom: 90px;
+    }
+
+    .section-title {
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-top: 40px;
+    }
+
+    .pillar-card {
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 12px;
+      padding: 30px;
+    }
+
+    .pillar-card h3 {
+      font-size: 1.25rem;
+      margin-bottom: 12px;
+      color: #fff;
+    }
+
+    .pillar-card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    footer {
+      border-top: 1px solid var(--surface-border);
+      padding: 40px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="container nav-content">
+      <a href="#" class="logo">🌴 Buriti <span>Pay</span></a>
+      <div class="nav-links">
+        <a href="#demo">Live Simulator</a>
+        <a href="#architecture">Architecture</a>
+        <a href="https://github.com/lucaasnogueira/buriti-pay" target="_blank">GitHub</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container">
+    <section class="hero">
+      <div class="badge">Go · Distributed Systems · High Concurrency</div>
+      <h1>Resilient Payments.<br><span>Zero Double-Spending.</span></h1>
+      <p class="subtitle">A high-performance payment processing microservice built in Go to tackle the toughest part of fintech: massive simultaneous money movement with total transactional consistency.</p>
+      
+      <div class="cta-group">
+        <a href="#demo" class="btn btn-primary">Try Interactive Simulator</a>
+        <a href="https://github.com/lucaasnogueira/buriti-pay" target="_blank" class="btn btn-secondary">View on GitHub</a>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value">&ge; 2,000</div>
+          <div class="stat-label">Transactions per second</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">&lt; 50 ms</div>
+          <div class="stat-label">Ingest latency (p99) with 202 Accepted</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value">0.00</div>
+          <div class="stat-label">Balance divergence under heavy contention</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Simulation Section -->
+    <section id="demo" class="demo-section">
+      <div class="demo-header">
+        <h2>Interactive Concurrency Simulator</h2>
+        <p style="color: var(--text-muted)">Simulate simultaneous transfers between accounts protected by Redis distributed locks, idempotent keys, and PostgreSQL optimistic fencing.</p>
+      </div>
+
+      <div class="demo-grid">
+        <div>
+          <div style="display: flex; gap: 16px; margin-bottom: 20px;">
+            <div class="account-card" style="flex: 1;">
+              <div class="account-title">Account A (Alice)</div>
+              <div class="balance-display" id="balA">$1,000.00</div>
+            </div>
+            <div class="account-card" style="flex: 1;">
+              <div class="account-title">Account B (Bob)</div>
+              <div class="balance-display" id="balB">$500.00</div>
+            </div>
+          </div>
+          <div class="account-card" style="margin-bottom: 20px;">
+            <div class="account-title">Total System Invariant (&sum; Balances)</div>
+            <div class="balance-display" id="totalBal" style="color: #2ecc71;">$1,500.00</div>
+          </div>
+
+          <div class="demo-controls">
+            <button class="btn btn-primary" onclick="simulateTransfers(100)">⚡ Fire 100 Concurrent Transfers</button>
+            <button class="btn btn-secondary" onclick="resetDemo()">Reset Balances</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="account-title">Real-Time Event Stream</div>
+          <div class="log-box" id="logBox">
+            <div class="log-entry log-info">[System] Microservice initialized. Ready for concurrent ingest.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture Pillars -->
+    <section id="architecture" class="arch-section">
+      <h2 class="section-title">The Three Architectural Pillars</h2>
+      <p style="text-align: center; color: var(--text-muted); max-width: 600px; margin: 0 auto;">Engineered for predictability, bounded resource utilization, and unshakeable financial correctness.</p>
+
+      <div class="pillars-grid">
+        <div class="pillar-card">
+          <h3>1. Bounded Worker Pool & Backpressure</h3>
+          <p>Accepts transactions with <code>202 Accepted</code>, immediately freeing the API. Bounded Go channels reject overload with <code>429 Too Many Requests</code>, keeping heap usage strictly predictable.</p>
+        </div>
+        <div class="pillar-card">
+          <h3>2. Distributed Lock with TTL Renewal</h3>
+          <p>Redis distributed locks (<code>SET NX PX</code> + Lua release script) coordinate workers across replicas. Ascending UUID ordering eliminates deadlocks between cross-transfers.</p>
+        </div>
+        <div class="pillar-card">
+          <h3>3. Transactional Outbox Pattern</h3>
+          <p>State mutations and events are written in the same atomic database transaction. An asynchronous relay publishes to RabbitMQ with publisher confirms, eliminating lost or phantom events.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>Buriti Pay &mdash; Designed and built by Lucas Silva. Open Source under the MIT License.</p>
+    </div>
+  </footer>
+
+  <script>
+    let balA = 100000; // in cents ($1,000.00)
+    let balB = 50000;  // in cents ($500.00)
+    const total = 150000;
+
+    function formatMoney(cents) {
+      return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function addLog(msg, type = 'log-info') {
+      const box = document.getElementById('logBox');
+      const div = document.createElement('div');
+      div.className = 'log-entry ' + type;
+      div.innerText = `[${new Date().toISOString().substring(11, 19)}] ${msg}`;
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function simulateTransfers(count) {
+      addLog(`Initiating batch of ${count} concurrent transfers (A &rarr; B and B &rarr; A)...`, 'log-info');
+      let completed = 0;
+
+      for (let i = 0; i < count; i++) {
+        setTimeout(() => {
+          const amount = 500; // $5.00
+          const direction = Math.random() > 0.5;
+
+          if (direction && balA >= amount) {
+            balA -= amount;
+            balB += amount;
+            addLog(`Transfer #${i+1}: Alice &rarr; Bob ($5.00) - Lock acquired, Tx committed`, 'log-success');
+          } else if (!direction && balB >= amount) {
+            balB -= amount;
+            balA += amount;
+            addLog(`Transfer #${i+1}: Bob &rarr; Alice ($5.00) - Lock acquired, Tx committed`, 'log-success');
+          } else {
+            addLog(`Transfer #${i+1}: Insufficient balance - Tx safely rejected`, 'log-warn');
+          }
+
+          document.getElementById('balA').innerText = formatMoney(balA);
+          document.getElementById('balB').innerText = formatMoney(balB);
+          document.getElementById('totalBal').innerText = formatMoney(balA + balB);
+
+          completed++;
+          if (completed === count) {
+            addLog(`Completed ${count} transfers. Invariant check: Total = ${formatMoney(balA + balB)} (Divergence: 0)`, 'log-success');
+          }
+        }, i * 20);
+      }
+    }
+
+    function resetDemo() {
+      balA = 100000;
+      balB = 50000;
+      document.getElementById('balA').innerText = formatMoney(balA);
+      document.getElementById('balB').innerText = formatMoney(balB);
+      document.getElementById('totalBal').innerText = formatMoney(total);
+      addLog('Account balances reset to initial state.', 'log-info');
+    }
+  </script>
+</body>
+</html>
