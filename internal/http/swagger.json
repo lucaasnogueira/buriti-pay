@@ -1,0 +1,554 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Buriti Pay API",
+    "description": "High-concurrency, double-entry payment processing engine in Go.\n\n### Important Concepts:\n- **Monetary values**: Always represented as 64-bit integers in **cents** (e.g. `10000` = R$ 100,00) to prevent floating-point rounding errors.\n- **Asynchronous Ingestion**: Payment requests reply with `202 Accepted` immediately while work is dispatched to a bounded worker pool.\n- **Idempotency**: All payment requests require the `Idempotency-Key` header to prevent duplicate charges.\n- **Consistency**: Guaranteed by Redis distributed locks, PostgreSQL ACID transactions, double-entry ledgers, and the transactional outbox pattern.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Buriti Pay Engineering"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current Host / Development Server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Accounts",
+      "description": "Account provisioning and balance management"
+    },
+    {
+      "name": "Payments",
+      "description": "Asynchronous idempotent payment processing"
+    },
+    {
+      "name": "System & Telemetry",
+      "description": "Health probes and observability"
+    }
+  ],
+  "paths": {
+    "/accounts": {
+      "post": {
+        "tags": ["Accounts"],
+        "summary": "Create account",
+        "description": "Provisions a new account with an initial balance in cents.",
+        "operationId": "createAccount",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountRequest"
+              },
+              "examples": {
+                "alice": {
+                  "summary": "Alice Silva (R$ 100,00)",
+                  "value": {
+                    "owner": "Alice Silva",
+                    "initial_balance": 10000
+                  }
+                },
+                "bob": {
+                  "summary": "Bob Santos (R$ 0,00)",
+                  "value": {
+                    "owner": "Bob Santos",
+                    "initial_balance": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                },
+                "example": {
+                  "id": "19ed383d-bafc-4288-907e-abca31087090",
+                  "owner": "Alice Silva",
+                  "balance": 10000,
+                  "version": 0,
+                  "created_at": "2026-10-05T12:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input (e.g. negative initial balance or missing owner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "initial balance cannot be negative"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{id}": {
+      "get": {
+        "tags": ["Accounts"],
+        "summary": "Get account details",
+        "description": "Retrieves the account balance, owner, and optimistic lock version by UUID.",
+        "operationId": "getAccount",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Account UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "19ed383d-bafc-4288-907e-abca31087090"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponse"
+                },
+                "example": {
+                  "id": "19ed383d-bafc-4288-907e-abca31087090",
+                  "owner": "Alice Silva",
+                  "balance": 7000,
+                  "version": 1,
+                  "created_at": "2026-10-05T12:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid UUID format",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "account not found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Submit payment transfer (Asynchronous)",
+        "description": "Accepts a money transfer request between two distinct accounts. Returns HTTP 202 Accepted immediately. Execution happens in the background through bounded worker goroutines and distributed Redis locking.",
+        "operationId": "createPayment",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Unique key to ensure at-most-once processing. Submitting the same key with the same body returns the existing payment.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "pix-demo-transfer-001"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePaymentRequest"
+              },
+              "examples": {
+                "standardTransfer": {
+                  "summary": "Transfer R$ 30,00 (3.000 cents)",
+                  "value": {
+                    "from_account_id": "19ed383d-bafc-4288-907e-abca31087090",
+                    "to_account_id": "4fac98e7-e2cf-4574-8333-a67bcde0eb9e",
+                    "amount": 3000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Payment accepted and enqueued for asynchronous processing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponse"
+                },
+                "example": {
+                  "id": "2e656680-47c0-4d8d-a0ca-b65f00e05882",
+                  "idempotency_key": "pix-demo-transfer-001",
+                  "from_account_id": "19ed383d-bafc-4288-907e-abca31087090",
+                  "to_account_id": "4fac98e7-e2cf-4574-8333-a67bcde0eb9e",
+                  "amount": 3000,
+                  "status": "PENDING",
+                  "failure_reason": null,
+                  "created_at": "2026-10-05T12:00:00Z",
+                  "updated_at": "2026-10-05T12:00:00Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing Idempotency-Key, invalid payload or same account transfer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "source and destination accounts must be different"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency conflict: key was previously used with a different request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "idempotency key reused with different request payload"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Worker queue buffer is full (backpressure applied)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "service unavailable: queue is full"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/{id}": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Get payment status",
+        "description": "Queries the current status (PENDING, CONFIRMED, or FAILED) and failure reason of a payment transaction.",
+        "operationId": "getPayment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Payment UUID",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "2e656680-47c0-4d8d-a0ca-b65f00e05882"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponse"
+                },
+                "example": {
+                  "id": "2e656680-47c0-4d8d-a0ca-b65f00e05882",
+                  "idempotency_key": "pix-demo-transfer-001",
+                  "from_account_id": "19ed383d-bafc-4288-907e-abca31087090",
+                  "to_account_id": "4fac98e7-e2cf-4574-8333-a67bcde0eb9e",
+                  "amount": 3000,
+                  "status": "CONFIRMED",
+                  "failure_reason": null,
+                  "created_at": "2026-10-05T12:00:00Z",
+                  "updated_at": "2026-10-05T12:00:01Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Payment not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": "payment not found"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": ["System & Telemetry"],
+        "summary": "Readiness probe",
+        "description": "Verifies active connectivity to PostgreSQL, Redis, and RabbitMQ.",
+        "responses": {
+          "200": {
+            "description": "All infrastructure dependencies are healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                },
+                "example": {
+                  "ready": true,
+                  "checks": {
+                    "postgres": "ok",
+                    "rabbitmq": "ok",
+                    "redis": "ok"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "One or more dependencies are unreachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": ["System & Telemetry"],
+        "summary": "Liveness probe",
+        "description": "Simple ping verifying that the HTTP server process is running.",
+        "responses": {
+          "200": {
+            "description": "Server alive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "tags": ["System & Telemetry"],
+        "summary": "Prometheus metrics",
+        "description": "Standard Prometheus text format metrics endpoint for scrapers.",
+        "responses": {
+          "200": {
+            "description": "Prometheus metric exposition",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateAccountRequest": {
+        "type": "object",
+        "required": ["owner", "initial_balance"],
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "Account holder name",
+            "example": "Alice Silva"
+          },
+          "initial_balance": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Initial balance in cents (>= 0). 10000 = R$ 100,00",
+            "example": 10000
+          }
+        }
+      },
+      "AccountResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "19ed383d-bafc-4288-907e-abca31087090"
+          },
+          "owner": {
+            "type": "string",
+            "example": "Alice Silva"
+          },
+          "balance": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Balance in cents",
+            "example": 10000
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Optimistic lock version sequence",
+            "example": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-10-05T12:00:00Z"
+          }
+        }
+      },
+      "CreatePaymentRequest": {
+        "type": "object",
+        "required": ["from_account_id", "to_account_id", "amount"],
+        "properties": {
+          "from_account_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Source Account UUID",
+            "example": "19ed383d-bafc-4288-907e-abca31087090"
+          },
+          "to_account_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Destination Account UUID",
+            "example": "4fac98e7-e2cf-4574-8333-a67bcde0eb9e"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transfer amount in cents (> 0). 3000 = R$ 30,00",
+            "example": 3000
+          }
+        }
+      },
+      "PaymentResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "2e656680-47c0-4d8d-a0ca-b65f00e05882"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "example": "pix-demo-transfer-001"
+          },
+          "from_account_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "19ed383d-bafc-4288-907e-abca31087090"
+          },
+          "to_account_id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "4fac98e7-e2cf-4574-8333-a67bcde0eb9e"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Transfer amount in cents",
+            "example": 3000
+          },
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "PROCESSING", "CONFIRMED", "FAILED"],
+            "example": "CONFIRMED"
+          },
+          "failure_reason": {
+            "type": "string",
+            "nullable": true,
+            "example": null
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-10-05T12:00:00Z"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-10-05T12:00:01Z"
+          }
+        }
+      },
+      "ReadyResponse": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "example": true
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "postgres": "ok",
+              "rabbitmq": "ok",
+              "redis": "ok"
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "invalid request body"
+          }
+        }
+      }
+    }
+  }
+}

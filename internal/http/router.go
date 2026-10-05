@@ -31,6 +31,10 @@ func NewRouter(
 	// Prometheus Metrics endpoint
 	r.Handle("/metrics", promhttp.Handler())
 
+	// Interactive Swagger UI & OpenAPI 3.0 Documentation
+	swaggerHandler := NewSwaggerHandler()
+	swaggerHandler.RegisterRoutes(r)
+
 	// API Routes
 	r.Route("/accounts", func(r chi.Router) {
 		r.Get("/{id}", accountHandler.GetAccount)

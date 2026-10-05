@@ -123,9 +123,11 @@ curl localhost:8080/payments/<payment-uuid>
 
 | Method | Route | Description | Expected Status |
 |--------|-------|-------------|-----------------|
+| `GET` | `/swagger` | Interactive Swagger UI (OpenAPI 3.0 Documentation) | `200 OK` |
+| `GET` | `/swagger/doc.json` | OpenAPI 3.0 JSON specification schema | `200 OK` |
 | `POST` | `/accounts` | Create an account with initial balance | `201 Created`, `400 Bad Request` |
 | `GET` | `/accounts/{id}` | Query account balance and version | `200 OK`, `404 Not Found` |
-| `POST` | `/payments` | Ingest payment asynchronously | `202 Accepted`, `409 Conflict`, `429 Too Many Requests` |
+| `POST` | `/payments` | Ingest payment asynchronously (requires `Idempotency-Key`) | `202 Accepted`, `409 Conflict`, `429 Too Many Requests` |
 | `GET` | `/payments/{id}` | Query payment status and failure reason | `200 OK`, `404 Not Found` |
 | `GET` | `/healthz` | Liveness health check | `200 OK` |
 | `GET` | `/readyz` | Readiness probe (verifies Postgres, Redis, RabbitMQ) | `200 OK`, `503 Service Unavailable` |

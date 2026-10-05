@@ -160,6 +160,12 @@ func (r *PostgresPaymentRepository) ExecuteTransfer(ctx context.Context, payment
 		return &p, nil
 	}
 
+	if p.Status == domain.StatusPending {
+		if err := p.TransitionTo(domain.StatusProcessing, nil); err != nil {
+			return nil, fmt.Errorf("failed to transition payment to processing: %w", err)
+		}
+	}
+
 	// 2. Deterministic locking order (ascending UUID) to prevent PostgreSQL deadlocks
 	firstID, secondID := p.FromAccountID, p.ToAccountID
 	if firstID.String() > secondID.String() {
